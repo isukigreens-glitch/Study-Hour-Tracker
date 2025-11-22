@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Study Hours Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #121212;
+            color: #ffffff;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(255,255,255,0.1);
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: none;
+        }
+        button {
+            background: #4caf50;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            border-bottom: 1px solid #333;
+            text-align: center;
+        }
+        .summary-box {
+            background: #222;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📘 Study Hours Tracker</h1>
+
+        <label>Date:</label>
+        <input type="date" id="dateInput" />
+
+        <label>Hours Studied:</label>
+        <input type="number" id="hoursInput" placeholder="Enter hours" />
+
+        <label>Subject:</label>
+        <input type="text" id="subjectInput" placeholder="e.g., Polity, Economy" />
+
+        <button onclick="saveEntry()">Save Entry</button>
+
+        <h2>📅 Saved Entries</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Hours</th>
+                    <th>Subject</th>
+                </tr>
+            </thead>
+            <tbody id="entriesTable"></tbody>
+        </table>
+
+        <div class="summary-box">
+            <h2>📊 Weekly Summary</h2>
+            <p id="weeklyHours">Total Hours This Week: 0</p>
+            <p id="streak">🔥 Current Streak: 0 days</p>
+        </div>
+    </div>
+
+    <script>
+        let entries = JSON.parse(localStorage.getItem("studyEntries") || "[]");
+
+        function saveEntry() {
+            const date = document.getElementById("dateInput").value;
+            const hours = parseFloat(document.getElementById("hoursInput").value);
+            const subject = document.getElementById("subjectInput").value.trim();
+
+            if (!date || !hours || !subject) {
+                alert("Please fill all fields");
+                return;
+            }
+
+            const entry = { date, hours, subject };
+            entries.push(entry);
+            localStorage.setItem("studyEntries", JSON.stringify(entries));
+
+            loadEntries();
+            calculateWeeklySummary();
+            calculateStreak();
+        }
+
+        function loadEntries() {
+            const table = document.getElementById("entriesTable");
+            table.innerHTML = "";
+
+            entries.forEach(e => {
+                table.innerHTML += `
+                    <tr>
+                        <td>${e.date}</td>
+                        <td>${e.hours}</td>
+                        <td>${e.subject}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function calculateWeeklySummary() {
+            const now = new Date();
+            const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
+
+            const weeklyHours = entries
+                .filter(e => new Date(e.date) >= weekStart)
+                .reduce((sum, e) => sum + e.hours, 0);
+
+            document.getElementById("weeklyHours").innerText = `Total Hours This Week: ${weeklyHours}`;
+        }
+
+        function calculateStreak() {
+            if (entries.length === 0) return;
+
+            const sorted = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
+            let streak = 1;
+
+            for (let i = 0; i < sorted.length - 1; i++) {
+                const d1 = new Date(sorted[i].date);
+                const d2 = new Date(sorted[i + 1].date);
+                const diff = (d1 - d2) / (1000 * 60 * 60 * 24);
+
+                if (diff === 1) streak++;
+                else break;
+            }
+
+            document.getElementById("streak").innerText = `🔥 Current Streak: ${streak} days`;
+        }
+
+        loadEntries();
+        calculateWeeklySummary();
+        calculateStreak();
+    </script>
+</body>
+</html>
