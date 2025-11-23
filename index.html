@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Live Hours Tracker</title>
+<link rel='preconnect' href='https://cdn.jsdelivr.net'/>
+<style>
+:root{--bg:#f6f7fb;--card:#ffffff;--text:#0b1020;--muted:#5b6270;--accent:#6b46c1;}
+[data-theme='dark']{--bg:#0b0d12;--card:#0f1720;--text:#e6eef8;--muted:#9aa4b2;--accent:#8b5cf6}
+*{box-sizing:border-box} body{font-family:Inter,system-ui;margin:0;background:var(--bg);color:var(--text);padding:18px}
+.app{max-width:980px;margin:0 auto;display:grid;gap:14px}
+.card{background:var(--card);padding:12px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+.big{font-size:28px;font-weight:600} .small{font-size:13px;color:var(--muted)}
+button{background:var(--accent);color:white;border:0;padding:8px 10px;border-radius:10px;cursor:pointer}
+.timer-box{margin-top:12px;padding:12px;border:1px dashed #ccc;border-radius:10px;text-align:center}
+#timerDisplay{font-size:26px;font-weight:bold;margin:8px 0}
+</style>
+</head>
+<body>
+<div class='app' id='app' data-theme>
+
+<header class='card'>
+  <h1>Live Hours Tracker</h1>
+  <div class='small muted' id='todayDate'></div>
+  <label class='small muted'>Dark <input type='checkbox' id='toggleDark'></label>
+</header>
+
+<section class='card'>
+  <div class='small muted'>Today's awake total</div>
+  <div class='big' id='awakeTotal'></div>
+  <div class='small muted'>Awake remaining (live)</div>
+  <div class='big' id='awakeRemaining'></div>
+</section>
+
+<section class='card'>
+  <div class='small muted'>Target hours</div>
+  <input id='targetHours' type='number' value='4' style='width:80px'>
+  <button id='saveTarget'>Save</button>
+  <div class='small muted'>Remaining: <span id='targetRemaining'></span></div>
+  <div class='small muted'>Streak: <strong id='streak'></strong></div>
+</section>
+
+<section class='card'>
+  <h3>Add Session</h3>
+  <div class='small muted'>Manual Entry</div>
+  <input type='time' id='sessionStart'>
+  <input type='time' id='sessionEnd'>
+  <button id='addSession'>Add</button>
+
+  <div class='timer-box'>
+    <div class='small muted'>OR use Live Timer</div>
+    <div id='timerDisplay'>00:00:00</div>
+    <button id='startBtn'>Start Timer</button>
+    <button id='stopBtn' style='display:none;background:#dc3545'>Stop & Save</button>
+  </div>
+
+  <div class='small muted'>Total logged today</div>
+  <div class='big' id='loggedToday'></div>
+  <hr>
+  <div class='small muted'>Daily Log</div>
+  <div id='logList' style='max-height:220px;overflow:auto'></div>
+</section>
+
+<section class='card'>
+  <div class='small muted'>Weekly Calendar</div>
+  <div id='calendar'></div>
+</section>
+
+<section class='card'>
+  <div class='small muted'>Weekly Line Chart</div>
+  <div class='chart-wrap'><canvas id='weekChart'></canvas></div>
+</section>
+
+</div>
+
+<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+<script>
+function formatLocalDate(d){
+  const y=d.getFullYear();const m=String(d.getMonth()+1).padStart(2,'0');const da=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${da}`;
+}
+
+const STORAGE_KEY='live_hours_tracker_v1';
+let state=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+if(!state.sessions) state.sessions={};
+
+function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}
+
+function todayKey(){return formatLocalDate(new Date());}
+
+function addManual(){
+  const s=sessionStart.value, e=sessionEnd.value;
+  if(!s||!e) return alert('Enter times');
+  const [sh,sm]=s.split(':').map(Number), [eh,em]=e.split(':').map(Number);
+  let dur=(eh*60+em)-(sh*60+sm); if(dur<0) dur+=1440;
+  if(!state.sessions[todayKey()]) state.sessions[todayKey()]=[];
+  state.sessions[todayKey()].push({id:Date.now(),start:s,end:e,durationMinutes:dur});
+  save(); render();
+}
+
+document.getElementById('addSession').onclick=addManual;
+
+let sec=0,timer=null;
+startBtn.onclick=()=>{sec=0;timer=setInterval(()=>{sec++;timerDisplay.textContent=new Date(sec*1000).toISOString().substr(11,8);},1000);startBtn.style.display='none';stopBtn.style.display='inline-block';}
+stopBtn.onclick=()=>{
+  clearInterval(timer);
+  const durMin=Math.floor(sec/60);
+  if(!state.sessions[todayKey()]) state.sessions[todayKey()]=[];
+  state.sessions[todayKey()].push({id:Date.now(),start:'timer',end:'timer',durationMinutes:durMin});
+  save(); render();
+  timerDisplay.textContent='00:00:00'; startBtn.style.display='inline-block'; stopBtn.style.display='none';
+}
+
+function render(){
+  let key=todayKey();
+  let total=0;
+  let list=state.sessions[key]||[];
+  logList.innerHTML='';
+  list.slice().reverse().forEach(s=>{
+    total+=s.durationMinutes;
+    let div=document.createElement('div');
+    div.className='log-item';
+    div.innerHTML=`<strong>${s.start}→${s.end}</strong> | ${s.durationMinutes} min <button data-id='${s.id}'>X</button>`;
+    div.querySelector('button').onclick=()=>{state.sessions[key]=state.sessions[key].filter(x=>x.id!=s.id);save();render();}
+    logList.appendChild(div);
+  });
+  loggedToday.textContent=Math.floor(total/60)+'h '+(total%60)+'m';
+}
+render();
+</script>
+</body></html>
