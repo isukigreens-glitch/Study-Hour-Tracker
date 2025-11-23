@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Hours Tracker</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React + ReactDOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+  <!-- Recharts CDN (UMD Build) -->
+  <script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+</head>
+<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen">
+  <div id="root"></div>
+
+  <script>
+    const { useEffect, useState, useRef } = React;
+    const {
+      LineChart,
+      Line,
+      XAxis,
+      YAxis,
+      CartesianGrid,
+      Tooltip,
+      ResponsiveContainer,
+    } = Recharts;
+
+    function LiveHoursTracker() {
+      const [sleepHours, setSleepHours] = useState(()=>Number(localStorage.getItem('lht_sleepHours')||8));
+      const [wakeTime, setWakeTime] = useState(()=>localStorage.getItem('lht_wakeTime')||"07:00");
+      const [dailyTargetHours, setDailyTargetHours] = useState(()=>Number(localStorage.getItem('lht_dailyTargetHours')||6));
+
+      const [targets, setTargets] = useState(()=>JSON.parse(localStorage.getItem('lht_targets')||"[]"));
+      const [logs, setLogs] = useState(()=>JSON.parse(localStorage.getItem('lht_logs')||"[]"));
+      const [history, setHistory] = useState(()=>JSON.parse(localStorage.getItem('lht_history')||"{}"));
+      const [dark, setDark] = useState(()=>JSON.parse(localStorage.getItem('lht_dark')||"false"));
+
+      const nowRef = useRef(new Date());
+      const [nowTick, setNowTick] = useState(Date.now());
+
+      useEffect(()=>localStorage.setItem('lht_sleepHours',sleepHours),[sleepHours]);
+      useEffect(()=>localStorage.setItem('lht_wakeTime',wakeTime),[wakeTime]);
+      useEffect(()=>localStorage.setItem('lht_dailyTargetHours',dailyTargetHours),[dailyTargetHours]);
+      useEffect(()=>localStorage.setItem('lht_targets',JSON.stringify(targets)),[targets]);
+      useEffect(()=>localStorage.setItem('lht_logs',JSON.stringify(logs)),[logs]);
+      useEffect(()=>localStorage.setItem('lht_history',JSON.stringify(history)),[history]);
+
+      useEffect(()=>{
+        localStorage.setItem('lht_dark',JSON.stringify(dark));
+        document.documentElement.classList.toggle('dark', dark);
+      },[dark]);
+
+      useEffect(()=>{
+        const t=setInterval(()=>{
+          nowRef.current=new Date();
+          setNowTick(Date.now());
+        },1000);
+        return ()=>clearInterval(t);
+      },[]);
+
+      function id(){return Math.random().toString(36).slice(2,9);}    
+      function todayISO(d=new Date()){return d.toISOString().slice(0,10);}    
+
+      function computeAvailableHours(){
+        const totalAvailable = Math.max(0, 24 - sleepHours);
+        const [hh,mm] = wakeTime.split(':').map(Number);
+        const now = nowRef.current;
+        const wake = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm,0);
+        if(now < wake) return { totalAvailable, remaining: totalAvailable };
+        const elapsed = (now - wake) / 3600000;
+        const remaining = Math.max(0,totalAvailable - elapsed);
+        return { totalAvailable, remaining:Number(remaining.toFixed(3)) };
+      }
+
+      const { totalAvailable, remaining } = computeAvailableHours();
+
+      function updateTodayHistory(delta){
+        setHistory(h=>{
+          const today=todayISO();
+          const prev=h[today]||0;
+          return { ...h, [today]: Math.max(0,Number((prev+delta).toFixed(2))) };
+        });
+      }
+
+      function addTarget(title,hours){
+        setTargets(t=>[...t,{id:id(),title,hours:Number(hours),done:false}]);
+      }
+      function toggleTargetDone(tid){
+        setTargets(ts=>ts.map(t=>{
+          if(t.id===tid){
+            const newDone=!t.done;
+            updateTodayHistory(newDone ? t.hours : -t.hours);
+            return {...t,done:newDone};
+          }
+          return t;
+        }));
+      }
+      function deleteTarget(tid){ setTargets(ts=>ts.filter(t=>t.id!==tid)); }
+
+      function addLog(text,hours){
+        const entry={id:id(),dateISO:todayISO(),text,hours:Number(hours)};
+        setLogs(l=>[entry,...l]);
+        updateTodayHistory(Number(hours));
+      }
+      function deleteLog(lid){
+        const log=logs.find(l=>l.id===lid);
+        if(log) updateTodayHistory(-log.hours);
+        setLogs(l=>l.filter(x=>x.id!==lid));
+      }
+
+      function getLast7Days(){
+        const arr=[];
+        for(let i=6;i>=0;i--){
+          const d=new Date(); d.setDate(d.getDate()-i);
+          const iso=todayISO(d);
+          arr.push({date:iso,hours:history[iso]||0});
+        }
+        return arr;
+      }
+
+      function computeStreak(){
+        let s=0;
+        for(let i=0;i<30;i++){
+          const d=new Date(); d.setDate(d.getDate()-i);
+          const iso=todayISO(d);
+          if((history[iso]||0)>=1) s++;
+          else break;
+        }
+        return s;
+      }
+
+      const streak = computeStreak();
+
+      const pendingTargetHours = targets.filter(t=>!t.done).reduce((a,b)=>a+b.hours,0);
+      const completedTargetHours = targets.filter(t=>t.done).reduce((a,b)=>a+b.hours,0);
+
+      const [newTargetTitle,setNewTargetTitle]=useState("");
+      const [newTargetHours,setNewTargetHours]=useState(1);
+      const [logText,setLogText]=useState("");
+      const [logHours,setLogHours]=useState(0.5);
+
+      return (
+        React.createElement("div",{className:"p-4 max-w-5xl mx-auto"},
+          React.createElement("header",{className:"flex justify-between mb-4"},
+            React.createElement("h1",{className:"text-2xl font-bold"},"Live Hours Tracker"),
+            React.createElement("label",{className:"flex items-center gap-2 cursor-pointer"},
+              React.createElement("input",{type:"checkbox",checked:dark,onChange:e=>setDark(e.target.checked)}),"Dark"
+            )
+          ),
+
+          React.createElement("section",{className:"grid grid-cols-1 md:grid-cols-3 gap-4"},
+            React.createElement("div",{className:"p-4 rounded bg-gray-50 dark:bg-gray-800"},
+              React.createElement("h2",{className:"font-medium"},"Clock"),
+              React.createElement("div",{className:"mt-2"}, new Date(nowTick).toLocaleString()),
+              React.createElement("div",{className:"mt-2 text-sm"},"Wake time: ",wakeTime),
+              React.createElement("div",{className:"mt-2"},
+                "Sleep hours:",
+                React.createElement("input",{type:"number",value:sleepHours,min:0,max:24,step:0.5,className:"w-20 ml-2 p-1 rounded text-black",onChange:e=>setSleepHours(Number(e.target.value))})
+              ),
+              React.createElement("div",{className:"mt-3"},
+                "Total available: ",totalAvailable.toFixed(2)," hrs",
+                React.createElement("div",null,"Remaining: ",remaining.toFixed(3)," hrs")
+              )
+            ),
+
+            React.createElement("div",{className:"p-4 rounded bg-gray-50 dark:bg-gray-800 md:col-span-2"},
+              React.createElement("h2",{className:"font-medium"},"Daily Targets"),
+              React.createElement("div",{className:"flex gap-2 mt-2 items-center"},
+                "Daily target hours:",
+                React.createElement("input",{type:"number",value:dailyTargetHours,min:0,step:0.5,className:"w-20 p-1 rounded text-black",onChange:e=>setDailyTargetHours(Number(e.target.value))}),
+                React.createElement("div",{className:"ml-auto"},"Streak: ",streak,"-day")
+              ),
+
+              React.createElement("div",{className:"grid grid-cols-1 md:grid-cols-2 gap-3 mt-3"},
+                React.createElement("div",null,
+                  React.createElement("h3",{className:"font-semibold"},"Add Target"),
+                  React.createElement("div",{className:"flex gap-2 mt-2"},
+                    React.createElement("input",{value:newTargetTitle,placeholder:"Title",onChange:e=>setNewTargetTitle(e.target.value),className:"flex-1 p-2 rounded text-black"}),
+                    React.createElement("input",{type:"number",value:newTargetHours,step:0.1,onChange:e=>setNewTargetHours(Number(e.target.value)),className:"w-24 p-2 rounded text-black"}),
+                    React.createElement("button",{className:"px-3 bg-green-600 text-white rounded",onClick:()=>{if(newTargetTitle){addTarget(newTargetTitle,newTargetHours);setNewTargetTitle("");}}},"Add")
+                  ),
+
+                  React.createElement("div",{className:"mt-3 text-sm"},
+                    "Pending: ",pendingTargetHours.toFixed(2)," hrs ",
+                    React.createElement("div",null,"Completed: ",completedTargetHours.toFixed(2)," hrs")
+                  ),
+
+                  React.createElement("ul",{className:"mt-3 space-y-2"},
+                    targets.map(t=>React.createElement("li",{key:t.id,className:"flex justify-between p-2 rounded bg-white dark:bg-gray-700"},
+                      React.createElement("div",null,
+                        React.createElement("div",{className:"font-medium"},t.title),
+                        React.createElement("div",{className:"text-sm"},t.hours," hrs")
+                      ),
+                      React.createElement("div",{className:"flex gap-2 items-center"},
+                        React.createElement("label",{className:"flex items-center gap-1"},
+                          React.createElement("input",{type:"checkbox",checked:t.done,onChange:()=>toggleTargetDone(t.id)}),"Done"
+                        ),
+                        React.createElement("button",{className:"text-red-500",onClick:()=>deleteTarget(t.id)},"Delete")
+                      )
+                    ))
+                  )
+                ),
+
+                React.createElement("div",null,
+                  React.createElement("h3",{className:"font-semibold"},"Daily Log"),
+                  React.createElement("textarea",{className:"w-full p-2 rounded text-black mt-2",rows:3,value:logText,onChange:e=>setLogText(e.target.value),placeholder:"What you did..."}),
+                  React.createElement("div",{className:"flex gap-2 mt-2"},
+                    React.createElement("input",{type:"number",className:"w-24 p-2 rounded text-black",value:logHours,step:0.1,onChange:e=>setLogHours(Number(e.target.value))}),
+                    React.createElement("button",{className:"px-3 bg-blue-600 text-white rounded",onClick:()=>{ if(logText && logHours>0){addLog(logText,logHours);setLogText("");setLogHours(0.5);} }},"Add Log")
+                  ),
+
+                  React.createElement("ul",{className:"mt-3 space-y-2"},
+                    logs.filter(l=>l.dateISO===todayISO()).map(l=>
+                      React.createElement("li",{key:l.id,className:"flex justify-between p-2 rounded bg-white dark:bg-gray-700"},
+                        React.createElement("div",null,
+                          React.createElement("div",{className:"text-sm"},l.text),
+                          React.createElement("div",{className:"text-xs"},l.hours," hrs")
+                        ),
+                        React.createElement("button",{className:"text-red-500",onClick:()=>deleteLog(l.id)},"Delete")
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          ),
+
+          React.createElement("section",{className:"grid grid-cols-1 md:grid-cols-2 gap-4 mt-6"},
+            React.createElement("div",{className:"p-4 bg-gray-50 dark:bg-gray-800 rounded"},
+              React.createElement("h2",{className:"font-medium"},"Weekly Calendar"),
+              React.createElement("div",{className:"grid grid-cols-7 gap-2 mt-3 text-sm"},
+                getLast7Days().map(d=>React.createElement("div",{key:d.date,className:"p-2 rounded border dark:border-gray-700 bg-white dark:bg-gray-700 text-center"},
+                  React.createElement("div",{className:"font-semibold"},new Date(d.date).toLocaleDateString(undefined,{weekday:'short'})),
+                  React.createElement("div",{className:"text-xs"},d.date.slice(5)),
+                  React.createElement("div",{className:"text-xs mt-1"},d.hours,"h")
+                ))
+              )
+            ),
+
+            React.createElement("div",{className:"p-4 bg-gray-50 dark:bg-gray-800 rounded"},
+              React.createElement("h2",{className:"font-medium"},"Weekly Line Chart"),
+              React.createElement("div",{style:{width:"100%",height:220},className:"mt-2"},
+                React.createElement(Recharts.ResponsiveContainer,null,
+                  React.createElement(Recharts.LineChart,{data:getLast7Days()},
+                    React.createElement(Recharts.CartesianGrid,{strokeDasharray:"3 3"}),
+                    React.createElement(Recharts.XAxis,{dataKey:"date",tickFormatter:v=>v.slice(5)}),
+                    React.createElement(Recharts.YAxis,null),
+                    React.createElement(Recharts.Tooltip,null),
+                    React.createElement(Recharts.Line,{type:"monotone",dataKey:"hours",stroke:"#8884d8",strokeWidth:2})
+                  )
+                )
+              )
+            )
+          ),
+
+          React.createElement("footer",{className:"text-center text-sm mt-6 p-4"},
+            "Auto-saves to device (localStorage). Mobile-friendly."
+          )
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(LiveHoursTracker));
+  </script>
+</body>
+</html>
